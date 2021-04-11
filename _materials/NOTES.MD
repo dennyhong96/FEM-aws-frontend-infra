@@ -28,12 +28,30 @@ This might be helpful at some point.
 ```json
 {
 	"Version": "2012-10-17",
+	"Id": "Policy1618156787602",
 	"Statement": [
 		{
+			"Sid": "Stmt1618156749891",
 			"Effect": "Allow",
 			"Principal": "*",
 			"Action": "s3:GetObject",
-			"Resource": "arn:aws:s3:::YOUR_BUCKET_NAME_HERE/*"
+			"Resource": "arn:aws:s3:::feawstest.tk/*"
+		},
+		{
+			"Sid": "Stmt1618156785821",
+			"Effect": "Allow",
+			"Principal": {
+				"AWS": "arn:aws:iam::598463965071:user/travis"
+			},
+			"Action": [
+				"s3:PutObject",
+				"s3:GetObject",
+				"s3:DeleteObject",
+				"s3:AbortMultipartUpload",
+				"s3:GetObjectAcl",
+				"s3:PutObjectAcl"
+			],
+			"Resource": "arn:aws:s3:::feawstest.tk/*"
 		}
 	]
 }
@@ -42,29 +60,30 @@ This might be helpful at some point.
 ## Travis Configuration
 
 ```yml
-language: node_js
+language: node_js # this is a node app
 node_js:
-    - "8"
+    - "8" # use node 8 to build the app
 cache:
-    yarn: true
+    npm: true # cache npm dependencies
     directories:
-        - node_modules
+        - node_modules # if deps haven't change, use cached node_modules
 script:
-    - yarn test
+    - npm run test # run the test suit, if test suit fails, the build will fail
 before_deploy:
-    - yarn global add travis-ci-cloudfront-invalidation
-    - yarn run build
+    - npm install -g travis-ci-cloudfront-invalidation # Install pkg for creating cloudfront invalidations
+    - npm run build # build the app
 deploy:
     provider: s3
-    access_key_id: $AWS_ACCESS_KEY_ID
+    access_key_id: $AWS_ACCESS_KEY_ID # env vars
     secret_access_key: $AWS_SECRET_ACCESS_KEY
     bucket: $S3_BUCKET
-    skip_cleanup: true
-    local-dir: dist
-    on:
-        branch: master
+    skip_cleanup: true # no need to clean up old files in s3
+    region: us-west-2
+    local-dir: dist # build dir
+    "on":
+        branch: master # only deploy on changes to master branch
 after_deploy:
-    - travis-ci-cloudfront-invalidation -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY -c $CLOUDFRONT_ID -i '/*' -b $TRAVIS_BRANCH -p $TRAVIS_PULL_REQUEST
+    - travis-ci-cloudfront-invalidation -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY -c $CLOUDFRONT_ID -i '/*' -b $TRAVIS_BRANCH -p $TRAVIS_PULL_REQUEST # '*' invalidates everything
 ```
 
 ### Redirecting to `index.html` on Valid Client-side Routes
@@ -72,18 +91,31 @@ after_deploy:
 Viewer Request
 
 ```js
-exports.handler = (event, context, callback) => {
+// Redirect Client Routes
+exports.handler = async (event) => {
+	// Viewer request - runs before request hits cloud front
+	// One Cloudfront distribution can only have one viewer request trigger
+
 	const request = event.Records[0].cf.request;
 
 	console.log("Before", request.uri);
 
-	if (/notes\/\d(\/edit)?/.test(request.uri)) {
-		request.uri = "/index.html";
+	// if url looks like a valid url "/notes/1"
+	// change it to just index.html
+	// which should be a cloudfront cache hit, legit 200
+	if (/notes\/\d/.test(request.uri)) {
+		request.uri = "/";
+	}
+
+	// Swap out a specific image
+	if (request.uri === "/prince-1.jpg") {
+		request.uri = "/prince-2.jpg";
 	}
 
 	console.log("After", request.uri);
 
-	callback(null, request);
+	// Return the request object
+	return request;
 };
 ```
 
@@ -92,11 +124,12 @@ exports.handler = (event, context, callback) => {
 Viewer Response
 
 ```js
-"use strict";
-
-exports.handler = (event, context, callback) => {
+// Modify Response Headers
+exports.handler = async (event) => {
 	const response = event.Records[0].cf.response;
 
+	// When response leaves Cloudfront to viewers
+	// Modify the response headers
 	response.headers["strict-transport-security"] = [
 		{
 			key: "Strict-Transport-Security",
@@ -132,7 +165,14 @@ exports.handler = (event, context, callback) => {
 		},
 	];
 
-	callback(null, response);
+	response.headers["server"] = [
+		{
+			key: "server",
+			value: "quantum web server",
+		},
+	];
+
+	return response;
 };
 ```
 
@@ -141,11 +181,14 @@ exports.handler = (event, context, callback) => {
 Origin Request
 
 ```js
-exports.handler = (event, context, callback) => {
+// Server Side Redirect
+exports.handler = async (event) => {
+	// Get request obj from event
 	const request = event.Records[0].cf.request;
 
+	// Create a response obj for temporary redirect
 	const response = {
-		status: "302",
+		status: "302", // 'status' is the only required prop for response
 		statusDescription: "Found",
 		headers: {
 			location: [
@@ -157,12 +200,12 @@ exports.handler = (event, context, callback) => {
 		},
 	};
 
+	// if requset uri is '/secret', return the response to redirect
 	if (request.uri === "/secret") {
-		console.log("Got it");
-		return callback(null, response);
+		return response;
 	}
 
-	console.log("Nope");
-	callback(null, request);
+	// else pass along the request to continue
+	return request;
 };
 ```
