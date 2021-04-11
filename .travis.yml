@@ -1,23 +1,27 @@
 language: node_js # this is a node app
 node_js:
-    - "8" # use node 8 to build the app
+  - '8' # use node 8 to build the app
 cache:
-    yarn: true # cache yarn dependencies
-    directories:
-        - node_modules # if deps haven't change, use cached node_modules
+  yarn: true # cache yarn dependencies
+  directories:
+    - node_modules # if deps haven't change, use cached node_modules
 script:
-    - yarn test # run the test suit, if test suit fails, the build will fail
+  - yarn test # run the test suit, if test suit fails, the build will fail
 before_deploy:
-    - yarn global add travis-ci-cloudfront-invalidation # Package for creating cloudfront invalidations
-    - yarn run build # build the app
+  - yarn global add travis-ci-cloudfront-invalidation # Package for creating cloudfront invalidations
+  - yarn run build # build the app
 deploy:
-    provider: s3
-    access_key_id: $AWS_ACCESS_KEY_ID # env vars
-    secret_access_key: $AWS_SECRET_ACCESS_KEY
-    bucket: $S3_BUCKET
-    skip_cleanup: true # don't clearn up old files in s3
-    local-dir: dist # build dir
-    on:
-        branch: master # only deploy on changes to master branch
+  provider: s3
+  access_key_id: $AWS_ACCESS_KEY_ID # env vars
+  secret_access_key: $AWS_SECRET_ACCESS_KEY
+  bucket: $S3_BUCKET
+  skip_cleanup: true # don't clearn up old files in s3
+  local-dir: dist # build dir
+  'on':
+    branch: master # only deploy on changes to master branch
 after_deploy:
-    - travis-ci-cloudfront-invalidation -a $AWS_ACCESS_KEY_ID -s $AWS_SECRET_ACCESS_KEY -c $CLOUDFRONT_ID -i '/*' -b $TRAVIS_BRANCH -p $TRAVIS_PULL_REQUEST # '*' invalidates everything
+  - >-
+    travis-ci-cloudfront-invalidation -a $AWS_ACCESS_KEY_ID -s
+    $AWS_SECRET_ACCESS_KEY -c $CLOUDFRONT_ID -i '/*' -b $TRAVIS_BRANCH -p
+    $TRAVIS_PULL_REQUEST
+# '*' invalidates everything
